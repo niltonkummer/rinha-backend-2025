@@ -28,7 +28,6 @@ func (cs *CacheService) Add(value any) {
 func (cs *CacheService) GetList() ([]any, error) {
 	cs.Lock()
 	defer cs.Unlock()
-	// copyCache := make([]any, len(cs.cache))
 	copyCache := make([]any, len(cs.cache))
 	copy(copyCache, cs.cache)
 	return copyCache, nil

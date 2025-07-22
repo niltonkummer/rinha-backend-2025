@@ -23,7 +23,7 @@ func (s *rpcStatsAdapter) InsertStats(correlationID string, amount decimal.Decim
 		CorrelationID: correlationID,
 		Amount:        amount,
 		Fallback:      fallback,
-		CreatedAt:     time.Now().UTC(),
+		CreatedAt:     requestedAt,
 	})
 	if err != nil {
 		return err

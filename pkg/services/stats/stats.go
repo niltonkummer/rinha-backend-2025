@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"github.com/gofiber/fiber/v2/log"
 	"github.com/shopspring/decimal"
 	"niltonkummer/rinha-2025/pkg/adapters"
 	"niltonkummer/rinha-2025/pkg/models"
@@ -54,7 +55,7 @@ func (s *StatsService) IncrementRequest(payment models.PaymentRequest) {
 	if err := s.storage.InsertStats(payment.CorrelationID, payment.Amount, s.isFallback, payment.RequestedAt); err != nil {
 		// Handle the error, e.g., log it or return it
 		// For now, we will just ignore it
-		// log.Error("Failed to insert stats", "error", err)
+		log.Error("Failed to insert stats", "error", err)
 		return
 	}
 }
