@@ -10,17 +10,6 @@ import (
 	"time"
 )
 
-//
-/*type PaymentsSummary struct {
-	TotalRequests int             `json:"totalRequests"`
-	TotalAmount   decimal.Decimal `json:"totalAmount"`
-}
-
-type PaymentsSummaryResponse struct {
-	Default  PaymentsSummary `json:"default"`
-	Fallback PaymentsSummary `json:"fallback"`
-}*/
-
 // StatsService provides methods to manage and retrieve statistics
 // This service must count atomically the number of requests and the total amount of money processed
 type StatsService struct {
@@ -53,23 +42,18 @@ func (s *StatsService) IncrementRequest(payment models.PaymentRequest) {
 
 	// Store the stats in the database
 	if err := s.storage.InsertStats(payment.CorrelationID, payment.Amount, s.isFallback, payment.RequestedAt); err != nil {
-		// Handle the error, e.g., log it or return it
-		// For now, we will just ignore it
 		log.Error("Failed to insert stats", "error", err)
 		return
 	}
 }
 
-// GetStats returns the current statistics
+// GetStatsByPeriod returns the current statistics by period
 func (s *StatsService) GetStatsByPeriod(start, end time.Time) *models.PaymentsSummaryResponse {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	sum, err := s.storage.RetrieveTotalStatsByPeriod(s.isFallback, start, end)
 	if err != nil {
-		// Handle the error, e.g., log it or return it
-		// For now, we will just ignore it
-		// log.Error("Failed to retrieve stats by period", "error", err)
 		return nil
 	}
 

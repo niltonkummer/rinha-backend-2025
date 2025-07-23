@@ -2,13 +2,11 @@ package request
 
 import (
 	"context"
-	"github.com/goccy/go-json"
-
-	// "encoding/json"
-
 	"errors"
-	"resty.dev/v3"
 	"time"
+
+	"github.com/goccy/go-json"
+	"resty.dev/v3"
 )
 
 type Response struct {

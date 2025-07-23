@@ -44,10 +44,6 @@ func (jp *JobProcessor) PrintStatus() {
 }
 
 func (jp *JobProcessor) HandleSteps(ctx context.Context, concurrency int) error {
-	if concurrency == 0 {
-		concurrency = 1
-	}
-
 	// Read jobs from channel and process them
 	for job := range jp.chanJobs {
 		jp.evaluateJob(ctx, job, concurrency)

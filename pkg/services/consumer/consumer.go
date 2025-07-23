@@ -3,15 +3,14 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"github.com/goccy/go-json"
-	"github.com/rabbitmq/amqp091-go"
 	"log/slog"
+	"time"
+
 	"niltonkummer/rinha-2025/infra/pubsub"
 	"niltonkummer/rinha-2025/pkg/adapters"
 	"niltonkummer/rinha-2025/pkg/models"
 	"niltonkummer/rinha-2025/pkg/services/orch"
 	"niltonkummer/rinha-2025/pkg/services/payment"
-	"time"
 )
 
 type Consumer struct {
@@ -51,6 +50,7 @@ func (c *Consumer) ConsumerQueue() {
 			c.log.Error("Received message is not a PaymentRequest", "message", fmt.Sprintf("%T", msgs))
 			continue
 		}
+
 		if dequeue.Requests == nil {
 			c.log.Debug("Received nil PaymentRequest in dequeue", "message", fmt.Sprintf("%T", msgs))
 			time.Sleep(250 * time.Millisecond) // Wait before checking again
@@ -59,8 +59,6 @@ func (c *Consumer) ConsumerQueue() {
 
 		for _, paymentRequestPtr := range dequeue.Requests {
 			paymentRequest := *paymentRequestPtr
-
-			//err = json.Unmarshal([]byte(msg), &paymentRequest)
 
 			job := orch.NewJob(paymentRequest.CorrelationID, func(ctx context.Context) error {
 				c.log.Debug("Processing payment request", "correlation_id", paymentRequest.CorrelationID)
@@ -93,47 +91,4 @@ func (c *Consumer) ConsumerQueue() {
 			}
 		}
 	}
-}
-
-// Start starts the consumer to listen for messages on the specified queue
-func (c *Consumer) Start(queueName string, handler func([]byte)) error {
-	return c.pubsub.ConsumeMessages(queueName, func(delivery amqp091.Delivery) {
-
-		paymentRequest := models.PaymentRequest{}
-		err := json.Unmarshal(delivery.Body, &paymentRequest)
-		if err != nil {
-			// Handle the error, e.g., log it or return it
-			// For now, we just print the error to the console
-			c.log.Error("Error unmarshalling payment request:", err.Error())
-			return
-		}
-		job := orch.NewJob(paymentRequest.CorrelationID, func(ctx context.Context) error {
-			c.log.Debug("Processing payment request", "correlation_id", paymentRequest.CorrelationID)
-
-			ctxWithTimeout, cancel := context.WithTimeout(ctx, 1*time.Minute)
-			defer cancel()
-			// Call the payment service to process the payment
-			_, err := c.paymentClient.PaymentRequest(ctxWithTimeout, paymentRequest)
-			if err != nil {
-				c.log.Error("Failed to process payment", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-
-				err := c.pubsub.PublishMessage(queueName, "payments", delivery.Body)
-				if err != nil {
-					c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-				}
-				return err
-			}
-
-			c.log.Debug("Payment processed successfully", "correlation_id", paymentRequest.CorrelationID)
-			return nil
-		})
-
-		err = c.jobProcessor.AddJob(job)
-		if err != nil {
-			err := c.pubsub.PublishMessage(queueName, "payments", delivery.Body)
-			if err != nil {
-				c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-			}
-		}
-	})
 }
