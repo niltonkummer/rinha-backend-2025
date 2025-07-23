@@ -47,7 +47,6 @@ func (s *Service) PaymentRequest(ctx context.Context, request models.PaymentRequ
 		return nil, err
 	}
 	requester.healthStatus.Failing = false
-	//time.Sleep(10 * time.Second)
 	return response, nil
 }
 
@@ -63,7 +62,6 @@ func (s *Service) getHealthyRequest() (requester *ServiceStatus) {
 
 	if status.FallbackProvider.Failing && status.DefaultProvider.Failing {
 		currentProvider = Default
-		// s.log.Error("Both payment providers are failing, using fallback provider", slog.Int("currentProvider", currentProvider))
 	}
 
 	return providers[currentProvider]

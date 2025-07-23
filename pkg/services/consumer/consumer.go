@@ -2,14 +2,13 @@ package consumer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"github.com/rabbitmq/amqp091-go"
 	"log/slog"
 	"niltonkummer/rinha-2025/infra/pubsub"
 	"niltonkummer/rinha-2025/pkg/adapters"
 	"niltonkummer/rinha-2025/pkg/models"
-	"niltonkummer/rinha-2025/pkg/services/cache"
 	"niltonkummer/rinha-2025/pkg/services/orch"
 	"niltonkummer/rinha-2025/pkg/services/payment"
 	"time"
@@ -24,7 +23,7 @@ type Consumer struct {
 }
 
 func NewConsumer(publisher pubsub.Publisher,
-	queue cache.Queue,
+	queue adapters.QueueAdapter,
 	paymentService *payment.Service,
 	jobProcessor orch.JobProcessorInterface,
 	log *slog.Logger) *Consumer {
@@ -37,61 +36,62 @@ func NewConsumer(publisher pubsub.Publisher,
 	}
 }
 
-func (c *Consumer) ConsumerQueue(queueName string) {
+func (c *Consumer) ConsumerQueue() {
 	for {
-		msg, err := c.queue.Dequeue(context.TODO())
+		msgs, err := c.queue.DequeueBatch(context.TODO(), 30)
 		if err != nil {
-			c.log.Error("Error consuming message from queue", "queue", queueName, "error", err.Error())
+			c.log.Error("Error consuming message from queue", "error", err.Error())
 			time.Sleep(1 * time.Second) // Wait before retrying
 			continue
 		}
 
-		dequeue, ok := msg.(*models.DequeueRPC)
+		dequeue, ok := msgs.(*models.DequeueBatchRPC)
 		if !ok {
 			time.Sleep(1 * time.Second) // Wait before checking again
-			c.log.Error("Received message is not a PaymentRequest", "message", fmt.Sprintf("%T", msg))
+			c.log.Error("Received message is not a PaymentRequest", "message", fmt.Sprintf("%T", msgs))
 			continue
 		}
-		if dequeue.Request == nil {
-			c.log.Debug("Received nil PaymentRequest in dequeue", "message", fmt.Sprintf("%T", msg))
-			time.Sleep(1 * time.Second) // Wait before checking again
+		if dequeue.Requests == nil {
+			c.log.Debug("Received nil PaymentRequest in dequeue", "message", fmt.Sprintf("%T", msgs))
+			time.Sleep(250 * time.Millisecond) // Wait before checking again
 			continue
 		}
 
-		paymentRequest := *dequeue.Request
+		for _, paymentRequestPtr := range dequeue.Requests {
+			paymentRequest := *paymentRequestPtr
 
-		//err = json.Unmarshal([]byte(msg), &paymentRequest)
+			//err = json.Unmarshal([]byte(msg), &paymentRequest)
 
-		job := orch.NewJob(paymentRequest.CorrelationID, func(ctx context.Context) error {
-			c.log.Debug("Processing payment request", "correlation_id", paymentRequest.CorrelationID)
+			job := orch.NewJob(paymentRequest.CorrelationID, func(ctx context.Context) error {
+				c.log.Debug("Processing payment request", "correlation_id", paymentRequest.CorrelationID)
 
-			ctxWithTimeout, cancel := context.WithTimeout(ctx, 1*time.Minute)
-			defer cancel()
-			paymentRequest.RequestedAt = time.Now().UTC()
-			// Call the payment service to process the payment
-			_, err := c.paymentClient.PaymentRequest(ctxWithTimeout, paymentRequest)
+				ctxWithTimeout, cancel := context.WithTimeout(ctx, 1*time.Minute)
+				defer cancel()
+				paymentRequest.RequestedAt = time.Now().UTC()
+				// Call the payment service to process the payment
+				_, err := c.paymentClient.PaymentRequest(ctxWithTimeout, paymentRequest)
+				if err != nil {
+					c.log.Error("Failed to process payment", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
+
+					err := c.queue.Enqueue(ctx, &paymentRequest)
+					if err != nil {
+						c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
+					}
+					return err
+				}
+
+				c.log.Debug("Payment processed successfully", "correlation_id", paymentRequest.CorrelationID)
+				return nil
+			})
+
+			err = c.jobProcessor.AddJob(job)
 			if err != nil {
-				c.log.Error("Failed to process payment", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-
-				err := c.queue.Enqueue(ctx, &paymentRequest)
+				err := c.queue.Enqueue(context.TODO(), &paymentRequest)
 				if err != nil {
 					c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
 				}
-				return err
-			}
-
-			c.log.Debug("Payment processed successfully", "correlation_id", paymentRequest.CorrelationID)
-			return nil
-		})
-
-		err = c.jobProcessor.AddJob(job)
-		if err != nil {
-			err := c.queue.Enqueue(context.TODO(), &paymentRequest)
-			if err != nil {
-				c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
 			}
 		}
-
 	}
 }
 

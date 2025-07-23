@@ -17,7 +17,6 @@ import (
 	"time"
 )
 
-// DB is a global variable for the SQLite database connection
 var DB *sql.DB
 
 type stats struct {
@@ -98,7 +97,7 @@ func (s *sqlStatsAdapter) InsertStats(correlationID string, amount decimal.Decim
 	}
 	query := "INSERT INTO stats (processed_at, correlation_id, amount, fallback) VALUES ($1, $2, $3, $4) ON CONFLICT (correlation_id) DO NOTHING"
 	ctx := context.TODO()
-	_, err = tx.ExecContext(ctx, query, time.Now(), correlationID, amount, isFallback)
+	_, err = tx.ExecContext(ctx, query, time.Now(), correlationID, amount, fallback)
 	if err != nil {
 		tx.Rollback()
 		s.log.Error("Failed to insert stats", "error", err) // Log an error if the insertion fails

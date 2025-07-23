@@ -37,3 +37,14 @@ func (q queueRPCPayments) Dequeue(ctx context.Context) (any, error) {
 	}
 	return response, nil
 }
+
+func (q queueRPCPayments) DequeueBatch(ctx context.Context, batchSize int) (any, error) {
+	var req = models.DequeueBatchRPC{
+		BatchSize: batchSize,
+	}
+	response, err := q.rpcClient.Call(&req)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}

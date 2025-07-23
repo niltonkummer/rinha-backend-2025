@@ -8,6 +8,7 @@ import (
 type Queue interface {
 	Enqueue(ctx context.Context, request any) error
 	Dequeue(ctx context.Context) (any, error)
+	DequeueBatch(ctx context.Context, batchSize int) ([]any, error)
 }
 
 type queueImpl struct {
@@ -37,6 +38,22 @@ func (q *queueImpl) Dequeue(ctx context.Context) (any, error) {
 	body := q.data[0]
 	q.data = q.data[1:] // remove the first element
 	return body, nil
+}
+
+func (q *queueImpl) DequeueBatch(ctx context.Context, batchSize int) ([]any, error) {
+	q.Lock()
+	defer q.Unlock()
+	if len(q.data) == 0 {
+		return nil, nil
+	}
+
+	if len(q.data) < batchSize {
+		batchSize = len(q.data)
+	}
+
+	res := q.data[:batchSize]
+	q.data = q.data[batchSize:]
+	return res, nil
 }
 
 func (q *queueImpl) GetList() []any {

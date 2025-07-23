@@ -99,10 +99,9 @@ func consumerProcessing() {
 		request.WithAfterRequestFunc(fn(statsFallback)))
 	paymentService := payment.NewPaymentService(paymentClientDefault, paymentClientFallback, log)
 	newConsumer := consumer.NewConsumer(nil, queue, paymentService, jobProcessor, log)
-	go newConsumer.ConsumerQueue("payments")
+	go newConsumer.ConsumerQueue()
 
-	jobProcessor.HandleSteps(ctx, 1)
-
+	jobProcessor.HandleSteps(ctx, 2)
 }
 
 func cacheService() {
@@ -131,6 +130,7 @@ func main() {
 		&models.PaymentsSummaryResponse{},
 		&models.DequeueRPC{},
 		&models.EnqueueRPC{},
+		&models.DequeueBatchRPC{},
 	)
 
 	mode := os.Args[1]

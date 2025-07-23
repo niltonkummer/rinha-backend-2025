@@ -15,7 +15,7 @@ type JobProcessorInterface interface {
 
 type JobProcessor struct {
 	log                *slog.Logger
-	parallelSteps      int
+	parallelJobs       int
 	jobsByType         sync.Map
 	processor          *jobTypeProcessor
 	jobTimeOutSec      int
@@ -26,7 +26,7 @@ type JobProcessor struct {
 
 func NewJobProcessor(maxJobs int, jobTimeoutSec int, logger *slog.Logger) *JobProcessor {
 	return &JobProcessor{
-		parallelSteps: maxJobs,
+		parallelJobs:  maxJobs,
 		jobTimeOutSec: jobTimeoutSec,
 		chanJobs:      make(chan *Job, maxJobs),
 		log:           logger,
@@ -39,7 +39,7 @@ func (jp *JobProcessor) AddJob(job *Job) error {
 }
 
 func (jp *JobProcessor) PrintStatus() {
-	jp.log.Info("Job Processor Status", "steps", jp.parallelSteps, "total_steps", jp.totalParallelSteps.Load())
+	jp.log.Info("Job Processor Status", "steps", jp.parallelJobs, "total_steps", jp.totalParallelSteps.Load())
 
 }
 
@@ -58,30 +58,14 @@ func (jp *JobProcessor) HandleSteps(ctx context.Context, concurrency int) error 
 
 func (jp *JobProcessor) evaluateJob(ctx context.Context, job *Job, concurrency int) {
 
-	var releaseStep bool
-	defer func() {
-		if releaseStep {
-
-		}
-	}()
-
 	jp.totalParallelSteps.Add(1)
 
 	if jp.processor == nil {
-
-		jp.processor = newStepTypeProcessor(ctx, WithMaxSteps(jp.parallelSteps*concurrency), WithWaitTerminate(func() error {
-			jp.log.Info("job processor terminated")
-			return nil
-		}), WithDebug(func(spc *jobTypeProcessor) {
-			if jp.debug {
-				jp.log.Info("job processor status job_type: %s, total jobs: %d", job, spc.totalSteps.Load())
-			}
-		}))
+		jp.processor = newStepTypeProcessor(ctx, WithMaxJobs(jp.parallelJobs*concurrency))
 	}
 
-	if isFull := jp.processor.enqueue(jobProcess{
+	jp.processor.enqueue(jobProcess{
 		executor: func() error {
-
 			start := time.Now()
 			jp.log.Debug("job start: %s", job.ID)
 
@@ -98,9 +82,7 @@ func (jp *JobProcessor) evaluateJob(ctx context.Context, job *Job, concurrency i
 		}, onFinish: func() {
 			jp.totalParallelSteps.Add(-1)
 		},
-	}); isFull {
-		releaseStep = true
-	}
+	})
 }
 
 func (jp *JobProcessor) processStep(ctx context.Context, job *Job) error {
@@ -138,7 +120,7 @@ func WithDebug(debug func(*jobTypeProcessor)) func(spc *jobProcessorConfig) {
 	}
 }
 
-func WithMaxSteps(maxSteps int) func(spc *jobProcessorConfig) {
+func WithMaxJobs(maxSteps int) func(spc *jobProcessorConfig) {
 	return func(spc *jobProcessorConfig) {
 		spc.maxSteps = int32(maxSteps)
 	}
