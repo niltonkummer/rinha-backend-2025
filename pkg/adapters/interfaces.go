@@ -15,6 +15,7 @@ type StatsAdapter interface {
 type QueueAdapter interface {
 	Enqueue(ctx context.Context, message any) error // Method to enqueue a message into the queue
 	Dequeue(ctx context.Context) (any, error)       // Method to dequeue a message from the queue
+	DequeueBatch(ctx context.Context, batchSize int) (any, error)
 }
 
 type Cache interface {

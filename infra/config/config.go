@@ -18,6 +18,7 @@ type Config struct {
 	RedisPassword        string `mapstructure:"REDIS_PASSWORD"`
 
 	RPCAddr string `mapstructure:"RPC_ADDR"`
+	Debug   bool   `mapstructure:"DEBUG"`
 }
 
 func LoadConfig(path ...string) Config {

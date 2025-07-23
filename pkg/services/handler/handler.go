@@ -7,6 +7,7 @@ import (
 	"niltonkummer/rinha-2025/infra/pubsub"
 	"niltonkummer/rinha-2025/pkg/adapters"
 	"niltonkummer/rinha-2025/pkg/models"
+	"niltonkummer/rinha-2025/pkg/services/cache"
 	stats2 "niltonkummer/rinha-2025/pkg/services/stats"
 	"time"
 )
@@ -54,11 +55,11 @@ func (h *PaymentHandler) HandlePaymentsSummary(start, end time.Time) (*models.Pa
 
 type CacheHandler struct {
 	cache adapters.Cache
-	queue adapters.QueueAdapter
+	queue cache.Queue
 	log   *slog.Logger
 }
 
-func NewCacheHandler(cache adapters.Cache, queue adapters.QueueAdapter, log *slog.Logger) *CacheHandler {
+func NewCacheHandler(cache adapters.Cache, queue cache.Queue, log *slog.Logger) *CacheHandler {
 	return &CacheHandler{
 		cache: cache,
 		queue: queue,
@@ -83,6 +84,16 @@ func (h *CacheHandler) HandleRPC(request any) any {
 		}
 		req.Request = dequeuedRequest
 		h.log.Debug("Dequeued payment request", "req", fmt.Sprintf("%T", dequeuedRequest), "request", dequeuedRequest)
+		return req
+
+	case *models.DequeueBatchRPC:
+		dequeuedRequests, err := h.DequeuePaymentsRequest(context.Background(), req.BatchSize)
+		if err != nil {
+			h.log.Error("Failed to dequeue payment request", "error", err)
+			return nil
+		}
+		req.Requests = dequeuedRequests
+		h.log.Debug("Dequeued payment request", "req", fmt.Sprintf("%T", dequeuedRequests), "request", dequeuedRequests)
 		return req
 	case *models.StatsRPC:
 		h.log.Debug("Received StatsRPC request", "req", fmt.Sprintf("%T", req), "request", req)
@@ -117,6 +128,29 @@ func (h *CacheHandler) DequeuePaymentRequest(ctx context.Context) (*models.Payme
 	}
 
 	return request.(*models.PaymentRequest), nil
+}
+
+func (h *CacheHandler) DequeuePaymentsRequest(ctx context.Context, size int) ([]*models.PaymentRequest, error) {
+	requests, err := h.queue.DequeueBatch(ctx, size)
+	if err != nil {
+		h.log.Error("Failed to dequeue payment request", "error", err)
+		return nil, err
+	}
+
+	if requests == nil {
+		return nil, nil
+	}
+
+	ret := make([]*models.PaymentRequest, 0, len(requests))
+	for _, request := range requests {
+		switch r := request.(type) {
+		case *models.PaymentRequest:
+			ret = append(ret, r)
+		}
+
+	}
+
+	return ret, nil
 }
 
 func (h *CacheHandler) AddStat(stats *models.StatsRPC) {

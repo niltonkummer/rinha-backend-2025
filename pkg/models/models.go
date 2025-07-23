@@ -43,6 +43,11 @@ type DequeueRPC struct {
 	Request *PaymentRequest
 }
 
+type DequeueBatchRPC struct {
+	BatchSize int
+	Requests  []*PaymentRequest
+}
+
 type StatsRPC struct {
 	CorrelationID string          `json:"correlationId"`
 	Amount        decimal.Decimal `json:"amount"`

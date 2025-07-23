@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"github.com/valyala/gorpc"
 	"log/slog"
-	config2 "niltonkummer/rinha-2025/infra/config"
+	"os"
+	"time"
+
+	configPkg "niltonkummer/rinha-2025/infra/config"
 	"niltonkummer/rinha-2025/infra/http"
 	"niltonkummer/rinha-2025/infra/rpc"
 	"niltonkummer/rinha-2025/pkg/models"
@@ -15,106 +18,110 @@ import (
 	"niltonkummer/rinha-2025/pkg/services/orch"
 	"niltonkummer/rinha-2025/pkg/services/payment"
 	"niltonkummer/rinha-2025/pkg/services/request"
-	stats2 "niltonkummer/rinha-2025/pkg/services/stats"
-	"os"
-	"time"
+	statsPkg "niltonkummer/rinha-2025/pkg/services/stats"
 )
 
-func api() {
-	// Create Viper config instance
-	config := config2.LoadConfig()
+var (
+	config = configPkg.LoadConfig()
+	log    *slog.Logger
+)
 
-	//ctx := context.TODO()
-	//ps, err := pubsub.NewRabbitMQPublisher(ctx, config.PubsubURL, "payments")
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	// queue := redis.NewRedisQueue(config.RedisURL)
+func api(ctx context.Context) {
 
 	rpcClient := gorpc.NewTCPClient(config.RPCAddr)
 	rpcClient.Start()
+
 	queue := rpc.NewPayments(rpcClient)
 
-	log := slog.Default()
-	statsAdapter := rpc.NewStats(rpcClient) //db.NewStatsAdapter(config.DatabaseURLPostgres, log)
-	statsDefault := stats2.NewStatsService(false, statsAdapter)
-	statsFallback := stats2.NewStatsService(true, statsAdapter)
+	statsAdapter := rpc.NewStats(rpcClient)
+	statsDefault := statsPkg.NewStatsService(false, statsAdapter)
+	statsFallback := statsPkg.NewStatsService(true, statsAdapter)
 
 	paymentHandler := handler.NewPaymentHandler(nil, queue, statsDefault, statsFallback, log)
 	router := http.NewRouter(paymentHandler)
 
 	router.RegisterRoutes()
-	// Start the HTTP server.env
+
+	// Start the HTTP
 	err := router.App.Listen(":" + config.HTTPServerHost)
 
 	if err != nil {
-		fmt.Println(err)
-		//panic(err)
+		log.Error("error on start api service", "err", err)
 	}
 }
 
-// Create a HTTP server.env with
-func consumerProcessing() {
-	// Create Viper config instance
-	config := config2.LoadConfig()
-
-	ctx := context.TODO()
-	//ps, err := pubsub.NewRabbitMQPublisher(ctx, config.PubsubURL, "payments")
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	// queue := redis.NewRedisQueue(config.RedisURL)
+func consumerProcessing(ctx context.Context) {
 
 	rpcClient := gorpc.NewTCPClient(config.RPCAddr)
 	rpcClient.Start()
 	queue := rpc.NewPayments(rpcClient)
 
-	log := slog.Default()
-	// statsAdapter, err := db.NewStatsAdapter(config.DatabaseURLPostgres, log)
 	statsAdapter := rpc.NewStats(rpcClient)
-	statsDefault := stats2.NewStatsService(false, statsAdapter)
-	statsFallback := stats2.NewStatsService(true, statsAdapter)
+	statsDefault := statsPkg.NewStatsService(false, statsAdapter)
+	statsFallback := statsPkg.NewStatsService(true, statsAdapter)
 
 	go func() {
 		for ; ; time.Sleep(10 * time.Second) {
-			log.Info("Default: " + statsDefault.PrintStats())
-			log.Info("Fallback: " + statsFallback.PrintStats())
+			log.Debug("Default: " + statsDefault.PrintStats())
+			log.Debug("Fallback: " + statsFallback.PrintStats())
 		}
 	}()
 
-	fn := func(sts *stats2.StatsService) func(any, any) {
+	fn := func(sts *statsPkg.StatsService) func(any, any) {
 		return func(body any, resp any) {
 			req := body.(models.PaymentRequest)
 			sts.IncrementRequest(req)
 		}
 	}
 
-	jobProcessor := orch.NewJobProcessor(config.MaxJobs, config.JobTimeout, log)
-	paymentClientDefault := request.NewRequestService(config.ProcessorDefaultURL,
+	paymentClientDefault := request.NewRequestService(
+		config.ProcessorDefaultURL,
 		request.WithAfterRequestFunc(fn(statsDefault)),
 	)
-	paymentClientFallback := request.NewRequestService(config.ProcessorFallbackURL,
+	paymentClientFallback := request.NewRequestService(
+		config.ProcessorFallbackURL,
 		request.WithAfterRequestFunc(fn(statsFallback)))
 	paymentService := payment.NewPaymentService(paymentClientDefault, paymentClientFallback, log)
-	newConsumer := consumer.NewConsumer(nil, queue, paymentService, jobProcessor, log)
-	go newConsumer.ConsumerQueue("payments")
 
-	jobProcessor.HandleSteps(ctx, 1)
+	jobProcessor := orch.NewJobProcessor(config.MaxJobs, config.JobTimeout, log)
+
+	newConsumer := consumer.NewConsumer(nil, queue, paymentService, jobProcessor, log)
+
+	go newConsumer.ConsumerQueue()
+
+	err := jobProcessor.HandleSteps(ctx, 2)
+	if err != nil {
+		log.Error("error on start HandleSteps", "err", err)
+		return
+	}
 
 }
 
-func cacheService() {
-	config := config2.LoadConfig()
-	log := slog.Default()
+func cacheService(ctx context.Context) {
 
 	cacheAdapter := cache.NewCacheService(20000)
 	queue := cache.NewQueue(20000)
 	cacheHandler := handler.NewCacheHandler(cacheAdapter, queue, slog.Default())
 
 	server := rpc.NewRPCServer(log)
-	server.Start(context.TODO(), config.RPCAddr, cacheHandler.HandleRPC)
+	err := server.Start(ctx, config.RPCAddr, cacheHandler.HandleRPC)
+	if err != nil {
+		log.Error("error on start cache service", "err", err)
+	}
+}
+
+func init() {
+
+	level := slog.LevelInfo
+	if config.Debug {
+		level = slog.LevelDebug
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+
+	log = slog.New(slog.NewJSONHandler(os.Stdout, opts))
 }
 
 func main() {
@@ -124,6 +131,10 @@ func main() {
 		return
 	}
 
+	ctx := context.TODO()
+
+	mode := os.Args[1]
+
 	rpc.RegisterTypes(
 		models.PaymentRequest{},
 		&models.StatsRPC{},
@@ -131,15 +142,15 @@ func main() {
 		&models.PaymentsSummaryResponse{},
 		&models.DequeueRPC{},
 		&models.EnqueueRPC{},
+		&models.DequeueBatchRPC{},
 	)
 
-	mode := os.Args[1]
 	switch mode {
 	case "api":
-		api()
+		api(ctx)
 	case "consumer":
-		consumerProcessing()
+		consumerProcessing(ctx)
 	case "cache":
-		cacheService()
+		cacheService(ctx)
 	}
 }

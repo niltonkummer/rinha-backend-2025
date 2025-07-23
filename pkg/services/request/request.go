@@ -2,11 +2,11 @@ package request
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
-	"resty.dev/v3"
 	"time"
+
+	"github.com/goccy/go-json"
+	"resty.dev/v3"
 )
 
 type Response struct {
@@ -49,9 +49,7 @@ func NewRequestService(baseUrl string, opts ...func(*options)) RequestService {
 			DialerKeepAlive: time.Minute * 3,
 		}).
 		SetRetryCount(1).
-		//SetRetryWaitTime(1000).
-		//SetRetryMaxWaitTime(5000).
-		SetTimeout(time.Second * 10).
+		SetTimeout(time.Second * 5).
 		SetBaseURL(baseUrl)
 
 	rs := &requestService{
@@ -89,11 +87,6 @@ func (r *requestService) Post(ctx context.Context, url string, body any, respons
 	}
 
 	if !resp.IsSuccess() {
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		ret.Message = string(b)
 		return ret, errors.New("request failed: " + resp.Status())
 	}
 	if response != nil {
