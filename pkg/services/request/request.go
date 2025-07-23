@@ -3,28 +3,28 @@ package request
 import (
 	"context"
 	"errors"
-	"time"
+	"net/http"
 
 	"github.com/goccy/go-json"
-	"resty.dev/v3"
+	"github.com/valyala/fasthttp"
 )
 
 type Response struct {
 	StatusCode int    `json:"statusCode"`
-	Status     string `json:"status"`
 	Message    string `json:"message"`
 }
 
 // RequestService defines the interface for making HTTP requests
 type RequestService interface {
-	Post(ctx context.Context, url string, body any, response any) (*Response, error)
-	Get(ctx context.Context, url string, response any) (*Response, error)
-	SetTimeout(timeout time.Duration)
+	Post(ctx context.Context, url string, body any, response any) (Response, error)
+	Get(ctx context.Context, url string, response any) (Response, error)
 }
 
 // requestService implements the RequestService interface
 type requestService struct {
-	client *resty.Client
+	// client *resty.Client
+	baseURL string
+	client  *fasthttp.Client
 	*options
 }
 
@@ -43,17 +43,9 @@ func WithAfterRequestFunc(fn afterSuccessRequest) func(*options) {
 
 // NewRequestService creates a new instance of requestService
 func NewRequestService(baseUrl string, opts ...func(*options)) RequestService {
-	client := resty.NewWithTransportSettings(
-		// Set the transport settings to use a custom HTTP client
-		&resty.TransportSettings{
-			DialerKeepAlive: time.Minute * 3,
-		}).
-		SetRetryCount(1).
-		SetTimeout(time.Second * 5).
-		SetBaseURL(baseUrl)
 
 	rs := &requestService{
-		client:  client,
+		baseURL: baseUrl,
 		options: &options{},
 	}
 
@@ -63,35 +55,41 @@ func NewRequestService(baseUrl string, opts ...func(*options)) RequestService {
 	return rs
 }
 
-func (r *requestService) SetTimeout(timeout time.Duration) {
-	r.client.SetTimeout(timeout)
-}
+// Post sends a POST request to the specified URI with the given body
+func (r *requestService) Post(ctx context.Context, uri string, body any, response any) (Response, error) {
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
-// Post sends a POST request to the specified URL with the given body
-func (r *requestService) Post(ctx context.Context, url string, body any, response any) (*Response, error) {
-	resp, err := r.client.R().
-		SetContentType("application/json").
-		WithContext(ctx).
-		SetBody(body).
-		Post(url)
-
+	req.Header.SetMethod(http.MethodPost)
+	req.Header.Set("content-type", "application/json")
+	req.SetRequestURI(r.baseURL + uri)
+	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return Response{}, err
+	}
+	req.SetBody(payload)
+
+	err = fasthttp.Do(req, resp)
+	if err != nil {
+		return Response{}, err
 	}
 
-	defer resp.Body.Close()
-
-	ret := &Response{
+	bodyResp := resp.Body()
+	ret := Response{
 		StatusCode: resp.StatusCode(),
-		Status:     resp.Status(),
+		Message:    string(bodyResp),
 	}
 
-	if !resp.IsSuccess() {
-		return ret, errors.New("request failed: " + resp.Status())
+	if !isSuccess(ret.StatusCode) {
+		return ret, errors.New("request failed: " + ret.Message)
 	}
 	if response != nil {
-		if err := json.NewDecoder(resp.Body).Decode(response); err != nil {
-			return nil, err
+		if err := json.Unmarshal(bodyResp, response); err != nil {
+			return Response{}, err
 		}
 	}
 	if r.options.afterSuccessRequestFunc != nil {
@@ -101,32 +99,42 @@ func (r *requestService) Post(ctx context.Context, url string, body any, respons
 }
 
 // Get sends a GET request to the specified URL
-func (r *requestService) Get(ctx context.Context, url string, response any) (*Response, error) {
-	request := r.client.R()
-	resp, err := request.
-		WithContext(ctx).
-		SetExpectResponseContentType("application/json").
-		Get(url)
+func (r *requestService) Get(ctx context.Context, uri string, response any) (Response, error) {
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
+	req.Header.SetMethod(http.MethodGet)
+	req.Header.Set("accept", "application/json")
+	req.SetRequestURI(r.baseURL + uri)
+
+	err := fasthttp.Do(req, resp)
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 
-	defer resp.Body.Close()
-
-	ret := &Response{
+	bodyResp := resp.Body()
+	ret := Response{
 		StatusCode: resp.StatusCode(),
-		Status:     resp.Status(),
+		Message:    string(bodyResp),
 	}
 
-	if !resp.IsSuccess() {
+	if !isSuccess(ret.StatusCode) {
 		return ret, nil
 	}
 	if response != nil {
-		if err = json.NewDecoder(resp.Body).Decode(response); err != nil {
-			return nil, err
+		if err = json.Unmarshal(bodyResp, response); err != nil {
+			return Response{}, err
 		}
 	}
 
 	return ret, nil
+}
+
+func isSuccess(statusCode int) bool {
+	s := statusCode / 100
+	return s == 2
 }
