@@ -19,12 +19,13 @@ func NewPayments(client *gorpc.Client) adapters.QueueAdapter {
 
 // Enqueue adds a message to the queue
 func (q queueRPCPayments) Enqueue(ctx context.Context, message any) error {
-	_, err := q.rpcClient.Call(&models.EnqueueRPC{
+	err := q.rpcClient.Send(&models.EnqueueRPC{
 		Request: message.(*models.PaymentRequest),
 	})
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

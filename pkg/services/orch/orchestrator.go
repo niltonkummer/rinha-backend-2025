@@ -10,7 +10,7 @@ import (
 )
 
 type JobProcessorInterface interface {
-	AddJob(job *Job) error
+	AddJob(job *Job)
 }
 
 type JobProcessor struct {
@@ -33,14 +33,12 @@ func NewJobProcessor(maxJobs int, jobTimeoutSec int, logger *slog.Logger) *JobPr
 	}
 }
 
-func (jp *JobProcessor) AddJob(job *Job) error {
+func (jp *JobProcessor) AddJob(job *Job) {
 	jp.chanJobs <- job
-	return nil
 }
 
 func (jp *JobProcessor) PrintStatus() {
 	jp.log.Info("Job Processor Status", "steps", jp.parallelJobs, "total_steps", jp.totalParallelSteps.Load())
-
 }
 
 func (jp *JobProcessor) HandleSteps(ctx context.Context, concurrency int) error {
@@ -63,16 +61,15 @@ func (jp *JobProcessor) evaluateJob(ctx context.Context, job *Job, concurrency i
 	jp.processor.enqueue(jobProcess{
 		executor: func() error {
 			start := time.Now()
-			jp.log.Debug("job start: %s", job.ID)
+			jp.log.Debug("job start", "job", job.ID)
 
 			ctxTimeout, cancel := context.WithTimeout(context.TODO(), time.Duration(jp.jobTimeOutSec)*time.Second)
 			defer cancel()
 			errCtx := jp.processStep(ctxTimeout, job)
 			if errCtx != nil {
-				jp.log.Info("error processing job type: %s %v", job.ID, errCtx.Error())
 				return errCtx
 			}
-			jp.log.Debug("job finished: %s, took: %s", job.ID, time.Since(start))
+			jp.log.Debug("job finished", "job", job.ID, "took", time.Since(start))
 
 			return nil
 		}, onFinish: func() {
@@ -85,7 +82,6 @@ func (jp *JobProcessor) processStep(ctx context.Context, job *Job) error {
 
 	err := job.jobFunc(ctx)
 	if err != nil {
-		jp.log.Error("error executing job '%s'.", job.ID)
 		return fmt.Errorf("error executing job '%s': %w", job.ID, err)
 	}
 

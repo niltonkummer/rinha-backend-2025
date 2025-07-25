@@ -1,48 +1,46 @@
+x-build_template: &build
+  build: .
+  networks:
+    - backend-network
+    - payment-processor
+
 services:
   api1: &api
-    build: .
+    <<: *build
     command: [ "/bin/api", "api" ]
     hostname: api1
-    networks:
-      - rinha-net
-      - payment-processor-net
     depends_on:
       - cache
     deploy:
       resources:
         limits:
-          cpus: "0.3"
+          cpus: "0.2"
           memory: "50MB"
 
   api2:
     <<: *api
     hostname: api2
 
-  consumer1: &consumer1
-    build: .
+  consumer1:
+    <<: *build
     command: [ "/bin/api", "consumer" ]
     hostname: consumer1
-    networks:
-      - rinha-net
-      - payment-processor-net
     depends_on:
       - cache
     deploy:
       resources:
         limits:
-          cpus: "0.6"
+          cpus: "0.4"
           memory: "80MB"
 
   cache:
-    build: .
+    <<: *build
     command: [ "/bin/api", "cache" ]
     hostname: cache
-    networks:
-      - rinha-net
     deploy:
       resources:
         limits:
-          cpus: "0.4"
+          cpus: "0.3"
           memory: "100MB"
 
   nginx:
@@ -54,18 +52,17 @@ services:
       - api1
       - api2
     ports:
-      - "9999:9999"
+      - "9999:80"
     networks:
-      - rinha-net
+      - backend-network
     deploy:
       resources:
         limits:
-          cpus: "0.3"
+          cpus: "0.4"
           memory: "70MB"
 
 networks:
-  rinha-net:
+  backend-network:
     driver: bridge
-  payment-processor-net:
-    name: payment-processor
+  payment-processor:
     external: true

@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/jamiealquiza/tachymeter"
+
 	configPkg "niltonkummer/rinha-2025/infra/config"
 	"niltonkummer/rinha-2025/infra/http"
 	"niltonkummer/rinha-2025/infra/rpc"
@@ -29,6 +31,7 @@ var (
 func api(ctx context.Context) {
 
 	rpcClient := gorpc.NewTCPClient(config.RPCAddr)
+	rpcClient.Conns = 30
 	rpcClient.Start()
 
 	queue := rpc.NewPayments(rpcClient)
@@ -67,6 +70,28 @@ func consumerProcessing(ctx context.Context) {
 		}
 	}()
 
+	reqDefaultStats := statsPkg.RequestStats{
+		Meter: tachymeter.New(&tachymeter.Config{Size: 15000}),
+	}
+	reqFallbackStats := statsPkg.RequestStats{
+		Meter: tachymeter.New(&tachymeter.Config{Size: 15000}),
+	}
+
+	_ = func() {
+		for ; ; time.Sleep(10 * time.Second) {
+			fmt.Println("Default",
+				"success", reqDefaultStats.Success.Load(),
+				"fail", reqDefaultStats.Fail.Load(),
+				"avg", reqDefaultStats.Meter.Calc(),
+			)
+			fmt.Println("Fallback",
+				"success", reqFallbackStats.Success.Load(),
+				"fail", reqFallbackStats.Fail.Load(),
+				"avg", reqFallbackStats.Meter.Calc(),
+			)
+		}
+	}
+
 	fn := func(sts *statsPkg.StatsService) func(any, any) {
 		return func(body any, resp any) {
 			req := body.(models.PaymentRequest)
@@ -74,13 +99,27 @@ func consumerProcessing(ctx context.Context) {
 		}
 	}
 
+	fnReqStats := func(sts *statsPkg.RequestStats) func(success bool, duration time.Duration) {
+		return func(success bool, duration time.Duration) {
+			if success {
+				sts.Success.Add(1)
+			} else {
+				sts.Fail.Add(1)
+			}
+			sts.Meter.AddTime(duration)
+		}
+	}
+
 	paymentClientDefault := request.NewRequestService(
 		config.ProcessorDefaultURL,
-		request.WithAfterRequestFunc(fn(statsDefault)),
+		request.WithAfterSuccessRequestFunc(fn(statsDefault)),
+		request.WithAfterRequestFunc(fnReqStats(&reqDefaultStats)),
 	)
 	paymentClientFallback := request.NewRequestService(
 		config.ProcessorFallbackURL,
-		request.WithAfterRequestFunc(fn(statsFallback)))
+		request.WithAfterSuccessRequestFunc(fn(statsFallback)),
+		request.WithAfterRequestFunc(fnReqStats(&reqFallbackStats)),
+	)
 	paymentService := payment.NewPaymentService(paymentClientDefault, paymentClientFallback, log)
 
 	jobProcessor := orch.NewJobProcessor(config.MaxJobs, config.JobTimeout, log)
@@ -121,7 +160,7 @@ func init() {
 		Level: level,
 	}
 
-	log = slog.New(slog.NewJSONHandler(os.Stdout, opts))
+	log = slog.New(slog.NewTextHandler(os.Stdout, opts))
 }
 
 func main() {

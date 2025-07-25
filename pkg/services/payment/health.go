@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"log/slog"
 	"niltonkummer/rinha-2025/pkg/models"
 	"niltonkummer/rinha-2025/pkg/services/request"
 	"sync"
@@ -59,15 +60,8 @@ func (s *Service) healthChecker() {
 		}(name, provider)
 	}
 	wg.Wait()
+	slog.Info("Health", "default", providers[Default].healthStatus)
+	slog.Info("Health", "fallback", providers[Default].healthStatus)
 	return
 
-}
-
-func GetProviderHealth() models.HealthControl {
-	status := models.HealthControl{
-		DefaultProvider:  providers[Default].healthStatus,
-		FallbackProvider: providers[Fallback].healthStatus,
-	}
-
-	return status
 }

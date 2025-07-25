@@ -2,24 +2,31 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"niltonkummer/rinha-2025/pkg/models"
 	"niltonkummer/rinha-2025/pkg/services/request"
+	"time"
 )
+
+var noopService = &ServiceStatus{
+	request: noop{},
+}
 
 // Service POST payments
 // GET payments-summary
 type Service struct {
 	Request         request.RequestService
 	RequestFallback request.RequestService
+	RequestNoOp     request.RequestService
 	log             *slog.Logger
 }
 
-func NewPaymentService(request, request2 request.RequestService,
+func NewPaymentService(requestDefault, requestFallback request.RequestService,
 	log *slog.Logger) *Service {
 	s := &Service{
-		Request:         request,
-		RequestFallback: request2,
+		Request:         requestDefault,
+		RequestFallback: requestFallback,
 		log:             log,
 	}
 
@@ -42,27 +49,34 @@ func (s *Service) PaymentRequest(ctx context.Context, request models.PaymentRequ
 	requester := s.getHealthyRequest()
 	response, err := requester.request.Post(ctx, "/payments", request, nil)
 	if err != nil {
-		requester.totalFailures.Add(1)
-		requester.healthStatus.Failing = true
 		return nil, err
 	}
-	requester.healthStatus.Failing = false
 	return response, nil
 }
 
 func (s *Service) getHealthyRequest() (requester *ServiceStatus) {
-	status := GetProviderHealth()
-	perc := float64(status.DefaultProvider.MinResponseTime) / float64(status.FallbackProvider.MinResponseTime)
+	status := providers
 
-	if status.DefaultProvider.Failing || perc > 1.5 {
-		currentProvider = Fallback
-	} else {
-		currentProvider = Default
+	if status[Default].totalFailures.Load() > 12 { // 12 * 5s = 60s outage
+		return providers[Fallback]
 	}
 
-	if status.FallbackProvider.Failing && status.DefaultProvider.Failing {
-		currentProvider = Default
+	if status[Default].healthStatus.Failing && status[Fallback].healthStatus.Failing {
+		// currentProvider = Default
+		return noopService
 	}
 
-	return providers[currentProvider]
+	return providers[Default]
+}
+
+type noop struct {
+}
+
+func (n noop) Post(ctx context.Context, url string, body any, response any) (request.Response, error) {
+	time.Sleep(time.Millisecond * 100)
+	return request.Response{}, errors.New("cooldown")
+}
+
+func (n noop) Get(ctx context.Context, url string, response any) (request.Response, error) {
+	return request.Response{}, errors.New("noop")
 }
