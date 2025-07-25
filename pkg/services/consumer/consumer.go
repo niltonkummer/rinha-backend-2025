@@ -69,11 +69,9 @@ func (c *Consumer) ConsumerQueue() {
 				// Call the payment service to process the payment
 				_, err := c.paymentClient.PaymentRequest(ctxWithTimeout, paymentRequest)
 				if err != nil {
-					c.log.Error("Failed to process payment", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-
-					err := c.queue.Enqueue(ctx, &paymentRequest)
-					if err != nil {
-						c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
+					errEnqueue := c.queue.Enqueue(ctx, paymentRequestPtr)
+					if errEnqueue != nil {
+						c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", errEnqueue.Error())
 					}
 					return err
 				}
@@ -82,13 +80,8 @@ func (c *Consumer) ConsumerQueue() {
 				return nil
 			})
 
-			err = c.jobProcessor.AddJob(job)
-			if err != nil {
-				err := c.queue.Enqueue(context.TODO(), &paymentRequest)
-				if err != nil {
-					c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", err.Error())
-				}
-			}
+			c.jobProcessor.AddJob(job)
+
 		}
 	}
 }

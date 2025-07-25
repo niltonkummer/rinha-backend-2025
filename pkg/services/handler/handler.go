@@ -33,17 +33,6 @@ func NewPaymentHandler(publisher pubsub.Publisher, queue adapters.QueueAdapter, 
 
 // HandlePaymentRequest processes the payment request and publishes it to the message queue
 func (h *PaymentHandler) HandlePaymentRequest(ctx context.Context, request models.PaymentRequest) error {
-	/*data, err := json.Marshal(request)
-	if err != nil {
-		return err
-	}*/
-
-	/*
-		if err := h.pubsub.PublishMessage("payment.pending", "payments", data); err != nil {
-			return err
-		}
-	*/
-	// if err := h.queue.Enqueue(ctx, "payments.pending", string(data)); err != nil {
 	return h.queue.Enqueue(ctx, &request)
 }
 

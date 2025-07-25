@@ -1,6 +1,8 @@
 package http
 
 import (
+	"fmt"
+	"github.com/jamiealquiza/tachymeter"
 	"net/http"
 	"sync"
 	"time"
@@ -20,7 +22,6 @@ type Router struct {
 func NewRouter(paymentHandler *handler.PaymentHandler) *Router {
 
 	app := fiber.New(fiber.Config{
-		//Prefork:                  true,
 		DisableHeaderNormalizing: true,
 		JSONEncoder:              json.Marshal,
 		JSONDecoder:              json.Unmarshal,
@@ -35,6 +36,10 @@ func NewRouter(paymentHandler *handler.PaymentHandler) *Router {
 // RegisterRoutes registers the HTTP routes for the application
 func (r *Router) RegisterRoutes() {
 
+	t := tachymeter.New(&tachymeter.Config{
+		Size:  5000,
+		HBins: 6,
+	})
 	r.App.Use(func(c *fiber.Ctx) error {
 
 		// Middleware to calculate request processing time
@@ -49,10 +54,18 @@ func (r *Router) RegisterRoutes() {
 		}
 		// Call the next handler in the chain
 		duration := time.Now().Sub(start)
+		t.AddTime(duration)
 		// Log the request processing time
 		c.Response().Header.Set("X-Processing-Time", duration.String())
 		return nil
 	})
+
+	go func() {
+		for {
+			time.Sleep(time.Second * 10)
+			fmt.Println(t.Calc())
+		}
+	}()
 	// Health check route
 	r.App.Get("/health", r.HealthCheck)
 
@@ -93,49 +106,54 @@ func (r *Router) PaymentRequest(c *fiber.Ctx) error {
 	var request = getPaymentFromPool()
 	defer paymentPool.Put(request)
 
-	if err := c.BodyParser(request); err != nil {
+	if err := json.Unmarshal(c.Body(), request); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request format: " + err.Error(),
 		})
 	}
-
+	
 	err := r.Handler.HandlePaymentRequest(c.Context(), *request)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to process payment request: " + err.Error(),
 		})
 	}
-	/**/
+
 	return c.Status(http.StatusNoContent).Send(nil)
 }
 
 // PaymentsSummary handles the payments summary endpoint
 func (r *Router) PaymentsSummary(c *fiber.Ctx) error {
-	// GET /payments-summary?from=2020-07-10T12:34:56.000Z&to=2020-07-10T12:35:56.000Z
+
 	type QueryParser struct {
 		From string `query:"from"`
 		To   string `query:"to"`
 	}
 
-	// Parse the query parameters
-	var query QueryParser
-	if err := c.QueryParser(&query); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid query parameters: " + err.Error(),
-		})
-	}
-	// Validate the date format
-	from, err := time.Parse(time.RFC3339, query.From)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid 'from' date format: " + err.Error(),
-		})
-	}
-	to, err := time.Parse(time.RFC3339, query.To)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid 'to' date format: " + err.Error(),
-		})
+	from := time.Time{}
+	to := time.Date(2999, 12, 31, 23, 59, 59, 0, time.UTC)
+	if c.Query("from") != "" && c.Query("to") != "" {
+		// Parse the query parameters
+		var query QueryParser
+		if err := c.QueryParser(&query); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid query parameters: " + err.Error(),
+			})
+		}
+		var err error
+		// Validate the date format
+		from, err = time.Parse(time.RFC3339, query.From)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid 'from' date format: " + err.Error(),
+			})
+		}
+		to, err = time.Parse(time.RFC3339, query.To)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid 'to' date format: " + err.Error(),
+			})
+		}
 	}
 
 	// Simulate fetching payments summary
