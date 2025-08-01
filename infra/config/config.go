@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"github.com/spf13/viper"
+	"os"
 )
 
 type Config struct {
@@ -19,6 +20,8 @@ type Config struct {
 
 	RPCAddr string `mapstructure:"RPC_ADDR"`
 	Debug   bool   `mapstructure:"DEBUG"`
+
+	ApiName string `mapstructure:"API_NAME"`
 }
 
 func LoadConfig(path ...string) Config {
@@ -36,6 +39,8 @@ func LoadConfig(path ...string) Config {
 	if err != nil {
 		panic(fmt.Errorf("unable to decode into struct, %v", err))
 	}
+
+	config.ApiName = os.Getenv("API_NAME")
 
 	return config
 }

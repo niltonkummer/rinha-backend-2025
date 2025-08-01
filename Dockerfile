@@ -10,7 +10,7 @@ RUN apk add --no-cache dumb-init
 # RUN go build -ldflags="-s -w" -o /bin/api /app/cmd/main.go
 RUN go build -o /bin/api /app/cmd/main.go
 
-FROM alpine:latest
+FROM debian:bookworm-slim
 
 WORKDIR /app
 COPY --from=builder ["/usr/bin/dumb-init", "/usr/bin/dumb-init"]

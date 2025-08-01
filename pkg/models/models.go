@@ -36,16 +36,16 @@ type PaymentsSummaryResponse struct {
 }
 
 type EnqueueRPC struct {
-	Request *PaymentRequest
+	Request PaymentRequest
 }
 
 type DequeueRPC struct {
-	Request *PaymentRequest
+	Request PaymentRequest
 }
 
 type DequeueBatchRPC struct {
 	BatchSize int
-	Requests  []*PaymentRequest
+	Requests  []PaymentRequest
 }
 
 type StatsRPC struct {

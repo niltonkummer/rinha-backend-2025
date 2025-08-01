@@ -33,7 +33,7 @@ func NewPaymentHandler(publisher pubsub.Publisher, queue adapters.QueueAdapter, 
 
 // HandlePaymentRequest processes the payment request and publishes it to the message queue
 func (h *PaymentHandler) HandlePaymentRequest(ctx context.Context, request models.PaymentRequest) error {
-	return h.queue.Enqueue(ctx, &request)
+	return h.queue.Enqueue(ctx, request)
 }
 
 // HandlePaymentsSummary processes the payments summary request and publishes it to the message queue
@@ -59,7 +59,7 @@ func NewCacheHandler(cache adapters.Cache, queue cache.Queue, log *slog.Logger) 
 // HandleRPC processes RPC requests for payment handling
 func (h *CacheHandler) HandleRPC(request any) any {
 	switch req := request.(type) {
-	case *models.EnqueueRPC:
+	case models.EnqueueRPC:
 		if err := h.EnqueuePaymentRequest(context.Background(), req.Request); err != nil {
 			h.log.Error("Failed to enqueue payment request", "error", err)
 		}
@@ -75,7 +75,7 @@ func (h *CacheHandler) HandleRPC(request any) any {
 		h.log.Debug("Dequeued payment request", "req", fmt.Sprintf("%T", dequeuedRequest), "request", dequeuedRequest)
 		return req
 
-	case *models.DequeueBatchRPC:
+	case models.DequeueBatchRPC:
 		dequeuedRequests, err := h.DequeuePaymentsRequest(context.Background(), req.BatchSize)
 		if err != nil {
 			h.log.Error("Failed to dequeue payment request", "error", err)
@@ -101,25 +101,25 @@ func (h *CacheHandler) HandleRPC(request any) any {
 	return request
 }
 
-func (h *CacheHandler) EnqueuePaymentRequest(ctx context.Context, request *models.PaymentRequest) error {
+func (h *CacheHandler) EnqueuePaymentRequest(ctx context.Context, request models.PaymentRequest) error {
 	return h.queue.Enqueue(ctx, request)
 }
 
-func (h *CacheHandler) DequeuePaymentRequest(ctx context.Context) (*models.PaymentRequest, error) {
+func (h *CacheHandler) DequeuePaymentRequest(ctx context.Context) (models.PaymentRequest, error) {
 	request, err := h.queue.Dequeue(ctx)
 	if err != nil {
 		h.log.Error("Failed to dequeue payment request", "error", err)
-		return nil, err
+		return models.PaymentRequest{}, err
 	}
 
 	if request == nil {
-		return nil, nil
+		return models.PaymentRequest{}, nil
 	}
 
-	return request.(*models.PaymentRequest), nil
+	return request.(models.PaymentRequest), nil
 }
 
-func (h *CacheHandler) DequeuePaymentsRequest(ctx context.Context, size int) ([]*models.PaymentRequest, error) {
+func (h *CacheHandler) DequeuePaymentsRequest(ctx context.Context, size int) ([]models.PaymentRequest, error) {
 	requests, err := h.queue.DequeueBatch(ctx, size)
 	if err != nil {
 		h.log.Error("Failed to dequeue payment request", "error", err)
@@ -130,10 +130,10 @@ func (h *CacheHandler) DequeuePaymentsRequest(ctx context.Context, size int) ([]
 		return nil, nil
 	}
 
-	ret := make([]*models.PaymentRequest, 0, len(requests))
+	ret := make([]models.PaymentRequest, 0, len(requests))
 	for _, request := range requests {
 		switch r := request.(type) {
-		case *models.PaymentRequest:
+		case models.PaymentRequest:
 			ret = append(ret, r)
 		}
 

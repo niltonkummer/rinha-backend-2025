@@ -3,7 +3,9 @@ package http
 import (
 	"fmt"
 	"github.com/jamiealquiza/tachymeter"
+	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -103,16 +105,14 @@ func getPaymentFromPool() *models.PaymentRequest {
 // PaymentRequest handles the payment request endpoint
 func (r *Router) PaymentRequest(c *fiber.Ctx) error {
 	// Simulate processing a payment request
-	var request = getPaymentFromPool()
-	defer paymentPool.Put(request)
-
-	if err := json.Unmarshal(c.Body(), request); err != nil {
+	var request models.PaymentRequest
+	if err := json.Unmarshal(c.Body(), &request); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request format: " + err.Error(),
 		})
 	}
-	
-	err := r.Handler.HandlePaymentRequest(c.Context(), *request)
+
+	err := r.Handler.HandlePaymentRequest(c.Context(), request)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to process payment request: " + err.Error(),
@@ -168,6 +168,15 @@ func (r *Router) PaymentsSummary(c *fiber.Ctx) error {
 }
 
 // Start starts the HTTP server.env
-func (r *Router) Start(port string) error {
-	return r.App.Listen(port)
+func (r *Router) Start(sock string) error {
+
+	socketPath := fmt.Sprintf("/unix-sock/%s.sock", sock)
+	_ = os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return err
+	}
+
+	_ = os.Chmod(socketPath, 0777)
+	return r.App.Listener(ln)
 }
