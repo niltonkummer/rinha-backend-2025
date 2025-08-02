@@ -44,7 +44,7 @@ func (c *Consumer) ConsumerQueue() {
 			continue
 		}
 
-		dequeue, ok := msgs.(*models.DequeueBatchRPC)
+		dequeue, ok := msgs.(models.DequeueBatchRPC)
 		if !ok {
 			time.Sleep(1 * time.Second) // Wait before checking again
 			c.log.Error("Received message is not a PaymentRequest", "message", fmt.Sprintf("%T", msgs))
@@ -57,8 +57,7 @@ func (c *Consumer) ConsumerQueue() {
 			continue
 		}
 
-		for _, paymentRequestPtr := range dequeue.Requests {
-			paymentRequest := *paymentRequestPtr
+		for _, paymentRequest := range dequeue.Requests {
 
 			job := orch.NewJob(paymentRequest.CorrelationID, func(ctx context.Context) error {
 				c.log.Debug("Processing payment request", "correlation_id", paymentRequest.CorrelationID)
@@ -69,7 +68,7 @@ func (c *Consumer) ConsumerQueue() {
 				// Call the payment service to process the payment
 				_, err := c.paymentClient.PaymentRequest(ctxWithTimeout, paymentRequest)
 				if err != nil {
-					errEnqueue := c.queue.Enqueue(ctx, paymentRequestPtr)
+					errEnqueue := c.queue.Enqueue(ctx, paymentRequest)
 					if errEnqueue != nil {
 						c.log.Error("Failed to publish message back to queue", "correlation_id", paymentRequest.CorrelationID, "error", errEnqueue.Error())
 					}

@@ -30,8 +30,7 @@ var (
 
 func api(ctx context.Context) {
 
-	rpcClient := gorpc.NewTCPClient(config.RPCAddr)
-	rpcClient.Conns = 30
+	rpcClient := gorpc.NewUnixClient(config.RPCAddr)
 	rpcClient.Start()
 
 	queue := rpc.NewPayments(rpcClient)
@@ -46,7 +45,7 @@ func api(ctx context.Context) {
 	router.RegisterRoutes()
 
 	// Start the HTTP
-	err := router.App.Listen(":" + config.HTTPServerHost)
+	err := router.Start(config.ApiName)
 
 	if err != nil {
 		log.Error("error on start api service", "err", err)
@@ -55,7 +54,7 @@ func api(ctx context.Context) {
 
 func consumerProcessing(ctx context.Context) {
 
-	rpcClient := gorpc.NewTCPClient(config.RPCAddr)
+	rpcClient := gorpc.NewUnixClient(config.RPCAddr)
 	rpcClient.Start()
 	queue := rpc.NewPayments(rpcClient)
 
@@ -138,11 +137,12 @@ func consumerProcessing(ctx context.Context) {
 
 func cacheService(ctx context.Context) {
 
-	cacheAdapter := cache.NewCacheService(20000)
-	queue := cache.NewQueue(20000)
+	cacheAdapter := cache.NewCacheService(16000)
+	queue := cache.NewQueue(16000)
 	cacheHandler := handler.NewCacheHandler(cacheAdapter, queue, slog.Default())
 
 	server := rpc.NewRPCServer(log)
+
 	err := server.Start(ctx, config.RPCAddr, cacheHandler.HandleRPC)
 	if err != nil {
 		log.Error("error on start cache service", "err", err)
@@ -180,8 +180,8 @@ func main() {
 		&models.SummaryRPC{},
 		&models.PaymentsSummaryResponse{},
 		&models.DequeueRPC{},
-		&models.EnqueueRPC{},
-		&models.DequeueBatchRPC{},
+		models.EnqueueRPC{},
+		models.DequeueBatchRPC{},
 	)
 
 	switch mode {

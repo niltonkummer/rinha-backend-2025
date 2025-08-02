@@ -19,13 +19,12 @@ func NewPayments(client *gorpc.Client) adapters.QueueAdapter {
 
 // Enqueue adds a message to the queue
 func (q queueRPCPayments) Enqueue(ctx context.Context, message any) error {
-	err := q.rpcClient.Send(&models.EnqueueRPC{
-		Request: message.(*models.PaymentRequest),
-	})
-	if err != nil {
-		return err
-	}
+	go func() {
+		q.rpcClient.Send(models.EnqueueRPC{
+			Request: message.(models.PaymentRequest),
+		})
 
+	}()
 	return nil
 }
 
@@ -43,7 +42,7 @@ func (q queueRPCPayments) DequeueBatch(ctx context.Context, batchSize int) (any,
 	var req = models.DequeueBatchRPC{
 		BatchSize: batchSize,
 	}
-	response, err := q.rpcClient.Call(&req)
+	response, err := q.rpcClient.Call(req)
 	if err != nil {
 		return nil, err
 	}

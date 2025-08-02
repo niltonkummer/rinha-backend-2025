@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/valyala/gorpc"
 	"log/slog"
-	"niltonkummer/rinha-2025/pkg/models"
+	"os"
 )
 
 // RPCServer is a simple RPC server that handles requests
@@ -26,17 +26,10 @@ func RegisterTypes(types ...any) {
 
 // Start starts the RPC server
 func (s *RPCServer) Start(ctx context.Context, addr string, handler func(request any) any) error {
-
-	gorpc.RegisterType(&models.PaymentsSummary{})
-
-	server := &gorpc.Server{
-		// Accept clients on this TCP address.
-		Addr: addr,
-
-		Handler: func(clientAddr string, request interface{}) interface{} {
-			return handler(request)
-		},
-	}
+	_ = os.Remove(addr)
+	server := gorpc.NewUnixServer(addr, func(clientAddr string, request interface{}) interface{} {
+		return handler(request)
+	})
 
 	go func() {
 		<-ctx.Done()
